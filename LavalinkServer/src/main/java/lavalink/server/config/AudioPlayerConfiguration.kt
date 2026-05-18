@@ -34,9 +34,6 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.function.Predicate
 
-/**
- * Created by napster on 05.03.18.
- */
 @Configuration
 class AudioPlayerConfiguration {
 
@@ -61,17 +58,20 @@ class AudioPlayerConfiguration {
             audioPlayerManager.enableGcMonitoring()
         }
 
+        // NonAllocatingAudioFrameBuffer eliminates per-frame heap allocation — significant GC pressure reduction.
+        // Enabled by default; can be disabled via config if compatibility issues arise.
         if (serverConfig.isNonAllocatingFrameBuffer) {
             log.info("Using a non-allocating frame buffer")
             audioPlayerManager.configuration.setFrameBufferFactory(::NonAllocatingAudioFrameBuffer)
+        } else {
+            log.debug("Non-allocating frame buffer is disabled. Consider enabling it to reduce GC pressure.")
         }
 
         val defaultFrameBufferDuration = audioPlayerManager.frameBufferDuration
         serverConfig.frameBufferDurationMs?.let {
-            if (it < 200) { // At the time of writing, LP enforces a minimum of 200ms.
+            if (it < 200) {
                 log.warn("Buffer size of ${it}ms is illegal. Defaulting to ${defaultFrameBufferDuration}ms")
             }
-
             val bufferDuration = it.takeIf { it >= 200 } ?: defaultFrameBufferDuration
             log.debug("Setting frame buffer duration to ${bufferDuration}ms")
             audioPlayerManager.frameBufferDuration = bufferDuration
@@ -83,7 +83,6 @@ class AudioPlayerConfiguration {
                 if (opusQuality !in 0..10) {
                     log.warn("Opus encoding quality $opusQuality is not within the range of 0 to 10. Defaulting to $defaultOpusEncodingQuality")
                 }
-
                 val qualitySetting = opusQuality.takeIf { it in 0..10 } ?: defaultOpusEncodingQuality
                 log.debug("Setting opusEncodingQuality to $qualitySetting")
                 it.opusEncodingQuality = qualitySetting
@@ -100,7 +99,6 @@ class AudioPlayerConfiguration {
             if (it < 100) {
                 log.warn("Track Stuck Threshold of ${it}ms is too small. Defaulting to ${defaultTrackStuckThresholdMs}ms")
             }
-
             val trackStuckThresholdMs: Long = it.takeIf { it >= 100 } ?: defaultTrackStuckThresholdMs
             log.debug("Setting Track Stuck Threshold to ${trackStuckThresholdMs}ms")
             audioPlayerManager.setTrackStuckThreshold(trackStuckThresholdMs)
@@ -134,11 +132,7 @@ class AudioPlayerConfiguration {
                     youtubeConfig.password
                 )
             } else {
-                youtube = YoutubeAudioSourceManager(
-                    serverConfig.isYoutubeSearchEnabled,
-                    "",
-                    ""
-                )
+                youtube = YoutubeAudioSourceManager(serverConfig.isYoutubeSearchEnabled, "", "")
                 log.debug("Youtube config block is not found")
             }
             if (routePlanner != null) {
@@ -147,21 +141,17 @@ class AudioPlayerConfiguration {
                     retryLimit < 0 -> YoutubeIpRotatorSetup(routePlanner).forSource(youtube).setup()
                     retryLimit == 0 -> YoutubeIpRotatorSetup(routePlanner).forSource(youtube)
                         .withRetryLimit(Int.MAX_VALUE).setup()
-
                     else -> YoutubeIpRotatorSetup(routePlanner).forSource(youtube).withRetryLimit(retryLimit).setup()
-
                 }
             }
-            val playlistLoadLimit = serverConfig.youtubePlaylistLoadLimit
-            if (playlistLoadLimit != null) youtube.setPlaylistPageCount(playlistLoadLimit)
-
+            serverConfig.youtubePlaylistLoadLimit?.let { youtube.setPlaylistPageCount(it) }
             audioPlayerManager.registerSourceManager(youtube)
         }
+
         if (sources.isSoundcloud) {
             val dataReader = DefaultSoundCloudDataReader()
             val dataLoader = DefaultSoundCloudDataLoader()
             val formatHandler = DefaultSoundCloudFormatHandler()
-
             audioPlayerManager.registerSourceManager(
                 SoundCloudAudioSourceManager(
                     serverConfig.isSoundcloudSearchEnabled,
@@ -173,6 +163,7 @@ class AudioPlayerConfiguration {
                 )
             )
         }
+
         if (sources.isBandcamp) audioPlayerManager.registerSourceManager(BandcampAudioSourceManager())
         if (sources.isTwitch) audioPlayerManager.registerSourceManager(TwitchStreamAudioSourceManager())
         if (sources.isVimeo) audioPlayerManager.registerSourceManager(VimeoAudioSourceManager())
@@ -186,16 +177,14 @@ class AudioPlayerConfiguration {
 
         audioPlayerManager.configuration.isFilterHotSwapEnabled = true
 
-
         val am = audioPlayerManagerConfigurations
             .fold(audioPlayerManager as AudioPlayerManager) { player, plugin ->
                 plugin.configure(player)
             }
 
-        // This must be loaded last
+        // HttpAudioSourceManager must be registered last
         if (sources.isHttp) {
             val httpAudioSourceManager = HttpAudioSourceManager(mcr)
-
             serverConfig.httpConfig?.let { httpConfig ->
                 httpAudioSourceManager.configureBuilder {
                     if (httpConfig.proxyHost.isNotBlank()) {
@@ -204,7 +193,6 @@ class AudioPlayerConfiguration {
                             AuthScope(httpConfig.proxyHost, httpConfig.proxyPort),
                             UsernamePasswordCredentials(httpConfig.proxyUser, httpConfig.proxyPassword)
                         )
-
                         it.setProxy(HttpHost(httpConfig.proxyHost, httpConfig.proxyPort))
                         if (httpConfig.proxyUser.isNotBlank()) {
                             it.setDefaultCredentialsProvider(credsProvider)
@@ -212,7 +200,6 @@ class AudioPlayerConfiguration {
                     }
                 }
             }
-
             audioPlayerManager.registerSourceManager(httpAudioSourceManager)
         }
 
@@ -233,9 +220,7 @@ class AudioPlayerConfiguration {
         }
 
         val blacklisted = rateLimitConfig.excludedIps.map { InetAddress.getByName(it) }
-        val filter = Predicate<InetAddress> {
-            !blacklisted.contains(it)
-        }
+        val filter = Predicate<InetAddress> { !blacklisted.contains(it) }
         val ipBlocks = ipBlockList.map {
             when {
                 Ipv4Block.isIpv4CidrBlock(it) -> Ipv4Block(it)
@@ -252,5 +237,4 @@ class AudioPlayerConfiguration {
             else -> throw RuntimeException("Unknown strategy!")
         }
     }
-
 }
