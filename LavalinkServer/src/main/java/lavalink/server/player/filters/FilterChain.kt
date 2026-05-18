@@ -76,33 +76,49 @@ class FilterChain(
         }
     }
 
-    private fun buildList() = listOfNotNull(
-        volume,
-        equalizer,
-        karaoke,
-        timescale,
-        tremolo,
-        vibrato,
-        distortion,
-        rotation,
-        channelMix,
-        lowPass,
-        *pluginFilters.toTypedArray()
-    )
+    // Builds the filter list once per call — avoids spread operator and intermediate array
+    private fun buildList(): List<FilterConfig> {
+        val list = ArrayList<FilterConfig>(10 + pluginFilters.size)
+        volume?.let { list.add(it) }
+        equalizer?.let { list.add(it) }
+        karaoke?.let { list.add(it) }
+        timescale?.let { list.add(it) }
+        tremolo?.let { list.add(it) }
+        vibrato?.let { list.add(it) }
+        distortion?.let { list.add(it) }
+        rotation?.let { list.add(it) }
+        channelMix?.let { list.add(it) }
+        lowPass?.let { list.add(it) }
+        list.addAll(pluginFilters)
+        return list
+    }
 
-    val isEnabled get() = buildList().any { it.isEnabled }
+    val isEnabled: Boolean
+        get() {
+            // Check fixed filters first before allocating the full list
+            if (volume?.isEnabled == true) return true
+            if (equalizer?.isEnabled == true) return true
+            if (karaoke?.isEnabled == true) return true
+            if (timescale?.isEnabled == true) return true
+            if (tremolo?.isEnabled == true) return true
+            if (vibrato?.isEnabled == true) return true
+            if (distortion?.isEnabled == true) return true
+            if (rotation?.isEnabled == true) return true
+            if (channelMix?.isEnabled == true) return true
+            if (lowPass?.isEnabled == true) return true
+            return pluginFilters.any { it.isEnabled }
+        }
 
     override fun buildChain(
         track: AudioTrack?,
         format: AudioDataFormat,
         output: UniversalPcmAudioFilter
     ): MutableList<AudioFilter> {
-        val enabledFilters = buildList().takeIf { it.isNotEmpty() }
-            ?: return mutableListOf()
+        val filters = buildList().ifEmpty { return mutableListOf() }
 
-        val pipeline = mutableListOf<FloatPcmAudioFilter>()
+        val pipeline = ArrayList<FloatPcmAudioFilter>(filters.size)
 
-        for (filter in enabledFilters) {
+        for (filter in filters) {
             val outputTo = pipeline.lastOrNull() ?: output
             val builtFilter = filter.build(format, outputTo)
             if (builtFilter != null) {
@@ -110,7 +126,9 @@ class FilterChain(
             }
         }
 
-        return pipeline.reversed().toMutableList() // Output last
+        // reverse() in-place — avoids allocating a second list
+        pipeline.reverse()
+        return pipeline
     }
 
     fun toFilters(): Filters {
@@ -148,5 +166,4 @@ class FilterChain(
         override val isEnabled = extension.isEnabled(json)
         override val name: String = extension.name
     }
-
 }
