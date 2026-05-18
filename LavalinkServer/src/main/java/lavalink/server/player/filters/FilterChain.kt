@@ -116,10 +116,11 @@ class FilterChain(
     ): MutableList<AudioFilter> {
         val filters = buildList().ifEmpty { return mutableListOf() }
 
-        val pipeline = ArrayList<FloatPcmAudioFilter>(filters.size)
+        // AudioFilter is the common supertype — FloatPcmAudioFilter implements it
+        val pipeline = ArrayList<AudioFilter>(filters.size)
 
         for (filter in filters) {
-            val outputTo = pipeline.lastOrNull() ?: output
+            val outputTo = (pipeline.lastOrNull() as? FloatPcmAudioFilter) ?: output
             val builtFilter = filter.build(format, outputTo)
             if (builtFilter != null) {
                 pipeline.add(builtFilter)
