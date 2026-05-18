@@ -43,8 +43,8 @@ import org.springframework.web.socket.CloseStatus
 import org.springframework.web.socket.WebSocketSession
 import org.springframework.web.socket.adapter.standard.StandardWebSocketSession
 import java.net.InetSocketAddress
-import java.util.*
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicReference
 
 class SocketContext(
     override val sessionId: String,
@@ -58,13 +58,16 @@ class SocketContext(
     val koe: KoeClient,
     eventHandlers: Collection<PluginEventHandler>,
     private val pluginInfoModifiers: List<AudioPluginInfoModifier>,
+    // Shared executors injected from outside — avoids per-session thread explosion
+    sharedExecutor: ScheduledExecutorService,
+    sharedPlayerUpdateService: ScheduledExecutorService,
 ) : ISocketContext {
 
     companion object {
         private val log = LoggerFactory.getLogger(SocketContext::class.java)
     }
 
-    //guildId <-> LavalinkPlayer
+    // guildId <-> LavalinkPlayer
     override val players = ConcurrentHashMap<Long, LavalinkPlayer>()
 
     val eventEmitter = EventEmitter(this, eventHandlers)
@@ -73,12 +76,14 @@ class SocketContext(
     var sessionPaused = false
     private val resumeEventQueue = ConcurrentLinkedQueue<String>()
 
-    /** Null means disabled. See implementation notes */
     var resumable: Boolean = false
-    var resumeTimeout = 60L // Seconds
-    private var sessionTimeoutFuture: ScheduledFuture<Unit>? = null
-    private val executor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
-    val playerUpdateService: ScheduledExecutorService
+    var resumeTimeout = 60L // seconds
+
+    // AtomicReference prevents race condition between pause() and stopResumeTimeout()
+    private val sessionTimeoutFuture = AtomicReference<ScheduledFuture<*>?>()
+
+    private val executor: ScheduledExecutorService = sharedExecutor
+    val playerUpdateService: ScheduledExecutorService = sharedPlayerUpdateService
 
     override val state: ISocketContext.State
         get() = when {
@@ -87,23 +92,13 @@ class SocketContext(
             else -> ISocketContext.State.DESTROYED
         }
 
+    // filter() avoids allocating an intermediate list on every call
     val playingPlayers: List<LavalinkPlayer>
-        get() {
-            val newList = LinkedList<LavalinkPlayer>()
-            players.values.forEach { player -> if (player.isPlaying) newList.add(player) }
-            return newList
-        }
-
+        get() = players.values.filter { it.isPlaying }
 
     init {
         val task = statsCollector.createTask(this)
         executor.scheduleAtFixedRate(task, 0, 1, TimeUnit.MINUTES)
-        playerUpdateService = Executors.newScheduledThreadPool(2) { r ->
-            val thread = Thread(r)
-            thread.name = "player-update"
-            thread.isDaemon = true
-            thread
-        }
     }
 
     override fun getPlayer(guildId: Long) = players.computeIfAbsent(guildId) {
@@ -139,9 +134,10 @@ class SocketContext(
 
     fun pause() {
         sessionPaused = true
-        sessionTimeoutFuture = executor.schedule<Unit>({
+        val future = executor.schedule({
             socketServer.onSessionResumeTimeout(this)
         }, resumeTimeout, TimeUnit.SECONDS)
+        sessionTimeoutFuture.set(future)
         eventEmitter.onSocketContextPaused()
     }
 
@@ -177,7 +173,7 @@ class SocketContext(
     /**
      * @return true if we can resume, false otherwise
      */
-    fun stopResumeTimeout() = sessionTimeoutFuture?.cancel(false) ?: false
+    fun stopResumeTimeout() = sessionTimeoutFuture.getAndSet(null)?.cancel(false) ?: false
 
     fun resume(session: WebSocketSession) {
         sessionPaused = false
@@ -185,9 +181,11 @@ class SocketContext(
         sendMessage(Message.Serializer, Message.ReadyEvent(true, sessionId))
         log.info("Replaying ${resumeEventQueue.size} events")
 
-        // Bulk actions are not guaranteed to be atomic, so we need to do this imperatively
-        while (resumeEventQueue.isNotEmpty()) {
-            send(resumeEventQueue.remove())
+        // poll() is atomic on ConcurrentLinkedQueue — avoids lost events during drain
+        var payload = resumeEventQueue.poll()
+        while (payload != null) {
+            send(payload)
+            payload = resumeEventQueue.poll()
         }
 
         players.values.forEach { SocketServer.sendPlayerUpdate(this, it) }
@@ -195,8 +193,7 @@ class SocketContext(
 
     internal fun shutdown() {
         log.info("Shutting down ${playingPlayers.size} playing players.")
-        executor.shutdown()
-        playerUpdateService.shutdown()
+        // Do not shut down shared executors here — they are managed externally
         players.values.forEach {
             this.destroyPlayer(it.guildId)
         }
