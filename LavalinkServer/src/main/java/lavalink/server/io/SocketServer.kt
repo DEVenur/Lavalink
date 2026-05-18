@@ -39,6 +39,9 @@ import org.springframework.web.socket.TextMessage
 import org.springframework.web.socket.WebSocketSession
 import org.springframework.web.socket.handler.TextWebSocketHandler
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 @Service
 final class SocketServer(
@@ -49,12 +52,27 @@ final class SocketServer(
     private val pluginInfoModifiers: List<AudioPluginInfoModifier>
 ) : TextWebSocketHandler(), ISocketServer {
 
-    // sessionID <-> Session
+    // sessionId <-> SocketContext
     override val sessions = ConcurrentHashMap<String, SocketContext>()
-    override val resumableSessions = mutableMapOf<String, SocketContext>()
+
+    // ConcurrentHashMap replaces mutableMapOf — resumableSessions is accessed from multiple threads
+    override val resumableSessions = ConcurrentHashMap<String, SocketContext>()
+
     private val koe = Koe.koe(koeOptions)
     private val statsCollector = StatsCollector(this)
     private val charPool = ('a'..'z') + ('0'..'9')
+
+    // Shared executor for stats scheduling — one thread handles all sessions
+    private val sharedExecutor: ScheduledExecutorService = Executors.newScheduledThreadPool(1) { r ->
+        Thread(r, "session-scheduler").also { it.isDaemon = true }
+    }
+
+    // Shared player update pool — sized to available CPUs, capped at 4 for predictability
+    private val sharedPlayerUpdateService: ScheduledExecutorService = Executors.newScheduledThreadPool(
+        minOf(Runtime.getRuntime().availableProcessors(), 4)
+    ) { r ->
+        Thread(r, "player-update").also { it.isDaemon = true }
+    }
 
     init {
         Runtime.getRuntime().addShutdownHook(ShutdownHandler(this))
@@ -68,8 +86,8 @@ final class SocketServer(
 
             val connection = socketContext.getMediaConnection(player).gatewayConnection
             socketContext.sendMessage(
-                    Message.Serializer,
-                    Message.PlayerUpdateEvent(
+                Message.Serializer,
+                Message.PlayerUpdateEvent(
                     PlayerState(
                         System.currentTimeMillis(),
                         player.audioPlayer.playingTrack?.position ?: 0,
@@ -83,10 +101,13 @@ final class SocketServer(
     }
 
     private fun generateUniqueSessionId(): String {
+        // StringBuilder avoids intermediate List allocation on every call
         var sessionId: String
         do {
-            sessionId = List(16) { charPool.random() }.joinToString("")
-        } while (sessions[sessionId] != null)
+            sessionId = buildString(16) {
+                repeat(16) { append(charPool.random()) }
+            }
+        } while (sessions.containsKey(sessionId))
         return sessionId
     }
 
@@ -100,16 +121,17 @@ final class SocketServer(
         val clientName = session.handshakeHeaders.getFirst("Client-Name")
         val userAgent = session.handshakeHeaders.getFirst("User-Agent")
 
-        var resumable: SocketContext? = null
-        if (sessionId != null) resumable = resumableSessions.remove(sessionId)
-
-        if (resumable != null) {
-            session.attributes["sessionId"] = resumable.sessionId
-            sessions[resumable.sessionId] = resumable
-            resumable.resume(session)
-            log.info("Resumed session with id $sessionId")
-            resumable.eventEmitter.onWebSocketOpen(true)
-            return
+        if (sessionId != null) {
+            // ConcurrentHashMap.remove is atomic — safe without additional locking
+            val resumable = resumableSessions.remove(sessionId)
+            if (resumable != null) {
+                session.attributes["sessionId"] = resumable.sessionId
+                sessions[resumable.sessionId] = resumable
+                resumable.resume(session)
+                log.info("Resumed session with id $sessionId")
+                resumable.eventEmitter.onWebSocketOpen(true)
+                return
+            }
         }
 
         sessionId = generateUniqueSessionId()
@@ -126,11 +148,14 @@ final class SocketServer(
             clientName,
             koe.newClient(userId),
             eventHandlers,
-            pluginInfoModifiers
+            pluginInfoModifiers,
+            sharedExecutor,
+            sharedPlayerUpdateService
         )
         sessions[sessionId] = socketContext
         socketContext.sendMessage(Message.Serializer, Message.ReadyEvent(false, sessionId))
         socketContext.eventEmitter.onWebSocketOpen(false)
+
         if (clientName != null) {
             log.info("Connection successfully established from $clientName")
             return
@@ -178,4 +203,25 @@ final class SocketServer(
     }
 
     internal fun canResume(id: String) = resumableSessions[id]?.stopResumeTimeout() ?: false
+
+    /**
+     * Shuts down shared executors when the server stops.
+     * Called by ShutdownHandler.
+     */
+    internal fun shutdownExecutors() {
+        sharedExecutor.shutdown()
+        sharedPlayerUpdateService.shutdown()
+        try {
+            if (!sharedExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                sharedExecutor.shutdownNow()
+            }
+            if (!sharedPlayerUpdateService.awaitTermination(5, TimeUnit.SECONDS)) {
+                sharedPlayerUpdateService.shutdownNow()
+            }
+        } catch (e: InterruptedException) {
+            sharedExecutor.shutdownNow()
+            sharedPlayerUpdateService.shutdownNow()
+            Thread.currentThread().interrupt()
+        }
+    }
 }
