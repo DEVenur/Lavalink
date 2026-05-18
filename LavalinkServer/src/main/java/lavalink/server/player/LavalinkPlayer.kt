@@ -41,6 +41,7 @@ import moe.kyokobot.koe.media.AudioFrameProvider
 import java.nio.ByteBuffer
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class LavalinkPlayer(
     override val socketContext: SocketContext,
@@ -49,7 +50,9 @@ class LavalinkPlayer(
     audioPlayerManager: AudioPlayerManager,
     pluginInfoModifiers: List<AudioPluginInfoModifier>
 ) : AudioEventAdapter(), IPlayer {
-    private val buffer = ByteBuffer.allocate(StandardAudioDataFormats.DISCORD_OPUS.maximumChunkSize())
+
+    // allocateDirect: buffer fora do heap Java — sem GC pressure
+    private val buffer = ByteBuffer.allocateDirect(StandardAudioDataFormats.DISCORD_OPUS.maximumChunkSize())
     private val mutableFrame = MutableAudioFrame().apply { setBuffer(buffer) }
 
     val audioLossCounter = AudioLossCounter()
@@ -66,7 +69,8 @@ class LavalinkPlayer(
         it.addListener(audioLossCounter)
     }
 
-    private var updateFuture: ScheduledFuture<*>? = null
+    // AtomicReference evita race condition entre onTrackEnd e onTrackStart
+    private val updateFuture = AtomicReference<ScheduledFuture<*>?>()
 
     override val isPlaying: Boolean
         get() = audioPlayer.playingTrack != null && !audioPlayer.isPaused
@@ -75,6 +79,7 @@ class LavalinkPlayer(
         get() = audioPlayer.playingTrack
 
     fun destroy() {
+        updateFuture.getAndSet(null)?.cancel(false)
         audioPlayer.destroy()
     }
 
@@ -82,10 +87,9 @@ class LavalinkPlayer(
         connection.audioSender = Provider()
     }
 
-
     override fun play(track: AudioTrack) {
         audioPlayer.playTrack(track)
-        sendPlayerUpdate(socketContext, this)
+        // sendPlayerUpdate removido daqui — onTrackStart já agenda o ciclo de updates
     }
 
     override fun stop() {
@@ -106,22 +110,20 @@ class LavalinkPlayer(
     }
 
     override fun onTrackEnd(player: AudioPlayer, track: AudioTrack, endReason: AudioTrackEndReason) {
-        // 2025-07-31 changed from !! to ? due to possible race condition (or general condition) where
-        // updateFuture has not be initialised yet somehow.
-        updateFuture?.cancel(false)
+        updateFuture.getAndSet(null)?.cancel(false)
     }
 
     override fun onTrackStart(player: AudioPlayer, track: AudioTrack) {
-        if (updateFuture?.isCancelled == false) {
-            return
-        }
+        // Cancela qualquer future anterior antes de criar um novo
+        updateFuture.getAndSet(null)?.cancel(false)
 
-        updateFuture = socketContext.playerUpdateService.scheduleAtFixedRate(
+        val future = socketContext.playerUpdateService.scheduleAtFixedRate(
             { sendPlayerUpdate(socketContext, this) },
             0,
             serverConfig.playerUpdateInterval.toLong(),
             TimeUnit.SECONDS
         )
+        updateFuture.set(future)
     }
 
     private inner class Provider : AudioFrameProvider {
