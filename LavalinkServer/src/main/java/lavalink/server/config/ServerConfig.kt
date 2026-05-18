@@ -30,7 +30,10 @@ import org.springframework.stereotype.Component
 @Component
 class ServerConfig {
     var password: String? = null
-    var isNonAllocatingFrameBuffer = false
+
+    // Enabled by default — eliminates per-frame heap allocation, significantly reduces GC pressure
+    var isNonAllocatingFrameBuffer = true
+
     var bufferDurationMs: Int? = null
     var frameBufferDurationMs: Int? = null
     var opusEncodingQuality: Int? = null
