@@ -4,13 +4,17 @@ import org.springframework.web.socket.CloseStatus
 
 class ShutdownHandler(private val socketServer: SocketServer) : Thread("lavalink-shutdown-handler") {
     init {
-        isDaemon = false // we want this thread to block shutdown until it has finished running
+        isDaemon = false // block JVM shutdown until this handler finishes
     }
 
     override fun run() {
-        socketServer.contexts.forEach {
-            // don't care about exceptions here, the JVM's shutting down anyway.
-            it.runCatching { closeWebSocket(CloseStatus.GOING_AWAY.code) }
+        // Shut down each session: close voice connections and destroy players before closing WebSocket
+        socketServer.contexts.forEach { context ->
+            context.runCatching { shutdown() }
+            context.runCatching { closeWebSocket(CloseStatus.GOING_AWAY.code) }
         }
+
+        // Shut down shared executors after all sessions are closed
+        socketServer.shutdownExecutors()
     }
 }
