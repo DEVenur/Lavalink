@@ -98,7 +98,7 @@ class EventEmitter(
         ctx.sendMessage(
             Message.Serializer,
             Message.EmittedEvent.TrackExceptionEvent(
-                lavaPlayerguildId.toString(),
+                lavaPlayer.guildId.toString(),
                 serializedTrack,
                 Exception(exception.message, exception.severity.toLavalink(), rootCause.toString(), stackTrace)
             )
