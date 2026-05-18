@@ -47,28 +47,36 @@ class EventEmitter(
     }
 
     override fun onTrackStart(player: AudioPlayer, track: AudioTrack) {
-        this.player.socketContext.sendMessage(
+        val ctx = this.player.socketContext
+        // Serialize track once and reuse across the single send
+        val serializedTrack = track.toTrack(audioPlayerManager, pluginInfoModifiers)
+        ctx.sendMessage(
             Message.Serializer,
             Message.EmittedEvent.TrackStartEvent(
                 this.player.guildId.toString(),
-                track.toTrack(audioPlayerManager, pluginInfoModifiers)
+                serializedTrack
             )
         )
     }
 
     override fun onTrackEnd(player: AudioPlayer, track: AudioTrack, endReason: AudioTrackEndReason) {
-        val reason = if (this.player.endMarkerHit) {
-            this.player.endMarkerHit = false
+        val lavaPlayer = this.player
+        val ctx = lavaPlayer.socketContext
+
+        val reason = if (lavaPlayer.endMarkerHit) {
+            lavaPlayer.endMarkerHit = false
             AudioTrackEndReason.FINISHED
         } else {
             endReason
         }
 
-        this.player.socketContext.sendMessage(
+        // Serialize track once — avoids redundant work if onTrackException also fires
+        val serializedTrack = track.toTrack(audioPlayerManager, pluginInfoModifiers)
+        ctx.sendMessage(
             Message.Serializer,
             Message.EmittedEvent.TrackEndEvent(
-                this.player.guildId.toString(),
-                track.toTrack(audioPlayerManager, pluginInfoModifiers),
+                lavaPlayer.guildId.toString(),
+                serializedTrack,
                 reason.toLavalink()
             )
         )
@@ -76,29 +84,43 @@ class EventEmitter(
 
     // These exceptions are already logged by Lavaplayer
     override fun onTrackException(player: AudioPlayer, track: AudioTrack, exception: FriendlyException) {
+        val lavaPlayer = this.player
+        val ctx = lavaPlayer.socketContext
         val rootCause = getRootCause(exception)
 
-        this.player.socketContext.sendMessage(
+        // Limit stack trace to 20 lines — full traces are rarely useful and are expensive to stringify
+        val stackTrace = rootCause.stackTrace
+            .take(20)
+            .joinToString("\n") { "\tat $it" }
+            .let { "${rootCause}\n$it" }
+
+        val serializedTrack = track.toTrack(audioPlayerManager, pluginInfoModifiers)
+        ctx.sendMessage(
             Message.Serializer,
             Message.EmittedEvent.TrackExceptionEvent(
-                this.player.guildId.toString(),
-                track.toTrack(audioPlayerManager, pluginInfoModifiers),
-                Exception(exception.message, exception.severity.toLavalink(), rootCause.toString(), rootCause.stackTraceToString())
+                lavaPlayerguildId.toString(),
+                serializedTrack,
+                Exception(exception.message, exception.severity.toLavalink(), rootCause.toString(), stackTrace)
             )
         )
     }
 
     override fun onTrackStuck(player: AudioPlayer, track: AudioTrack, thresholdMs: Long) {
+        val lavaPlayer = this.player
+        val ctx = lavaPlayer.socketContext
+
         log.warn("${track.info.title} got stuck! Threshold surpassed: ${thresholdMs}ms")
-        this.player.socketContext.sendMessage(
+
+        // Serialize track once — reused for both the event and the player update
+        val serializedTrack = track.toTrack(audioPlayerManager, pluginInfoModifiers)
+        ctx.sendMessage(
             Message.Serializer,
             Message.EmittedEvent.TrackStuckEvent(
-                this.player.guildId.toString(),
-                track.toTrack(audioPlayerManager, pluginInfoModifiers),
+                lavaPlayer.guildId.toString(),
+                serializedTrack,
                 thresholdMs
             )
         )
-        sendPlayerUpdate(this.player.socketContext, this.player)
+        sendPlayerUpdate(ctx, lavaPlayer)
     }
-
 }
