@@ -15,13 +15,12 @@ import com.sedmelluq.discord.lavaplayer.filter.equalizer.Equalizer as Lavaplayer
 
 class VolumeConfig(val volume: Float) : FilterConfig() {
     override fun build(format: AudioDataFormat, output: FloatPcmAudioFilter): FloatPcmAudioFilter {
-        return VolumePcmAudioFilter(output).also {
-            it.volume = volume
-        }
+        return VolumePcmAudioFilter(output).also { it.volume = volume }
     }
 
-    override val isEnabled: Boolean get() = volume != 1.0f
-    override val name: String get() = "volume"
+    // Cached at construction — value never changes after creation
+    override val isEnabled: Boolean = volume != 1.0f
+    override val name: String = "volume"
 }
 
 data class Band(val band: Int, val gain: Float)
@@ -36,8 +35,9 @@ class EqualizerConfig(val bands: List<Band>) : FilterConfig() {
     override fun build(format: AudioDataFormat, output: FloatPcmAudioFilter): FloatPcmAudioFilter =
         LavaplayerEqualizer(format.channelCount, output, array)
 
-    override val isEnabled: Boolean get() = array.any { it != 0.0f }
-    override val name: String get() = "equalizer"
+    // Cached at construction — bands are immutable after init
+    override val isEnabled: Boolean = array.any { it != 0.0f }
+    override val name: String = "equalizer"
 }
 
 class KaraokeConfig(
@@ -54,8 +54,8 @@ class KaraokeConfig(
             .setFilterWidth(filterWidth)
     }
 
-    override val isEnabled: Boolean get() = true
-    override val name: String get() = "karaoke"
+    override val isEnabled: Boolean = true
+    override val name: String = "karaoke"
 }
 
 class TimescaleConfig(
@@ -63,7 +63,6 @@ class TimescaleConfig(
     val pitch: Double = 1.0,
     val rate: Double = 1.0
 ) : FilterConfig() {
-
     override fun build(format: AudioDataFormat, output: FloatPcmAudioFilter): FloatPcmAudioFilter {
         return TimescalePcmAudioFilter(output, format.channelCount, format.sampleRate)
             .setSpeed(speed)
@@ -71,8 +70,9 @@ class TimescaleConfig(
             .setRate(rate)
     }
 
-    override val isEnabled: Boolean get() = speed != 1.0 || pitch != 1.0 || rate != 1.0
-    override val name: String get() = "timescale"
+    // Cached at construction — params are immutable
+    override val isEnabled: Boolean = speed != 1.0 || pitch != 1.0 || rate != 1.0
+    override val name: String = "timescale"
 }
 
 class TremoloConfig(
@@ -85,23 +85,22 @@ class TremoloConfig(
             .setDepth(depth)
     }
 
-    override val isEnabled: Boolean get() = depth != 0.0f
-    override val name: String get() = "tremolo"
+    override val isEnabled: Boolean = depth != 0.0f
+    override val name: String = "tremolo"
 }
 
 class VibratoConfig(
     val frequency: Float = 2.0f,
     val depth: Float = 0.5f
 ) : FilterConfig() {
-
     override fun build(format: AudioDataFormat, output: FloatPcmAudioFilter): FloatPcmAudioFilter {
         return VibratoPcmAudioFilter(output, format.channelCount, format.sampleRate)
             .setFrequency(frequency)
             .setDepth(depth)
     }
 
-    override val isEnabled: Boolean get() = depth != 0.0f
-    override val name: String get() = "vibrato"
+    override val isEnabled: Boolean = depth != 0.0f
+    override val name: String = "vibrato"
 }
 
 class DistortionConfig(
@@ -114,7 +113,6 @@ class DistortionConfig(
     val offset: Float = 0.0f,
     val scale: Float = 1.0f
 ) : FilterConfig() {
-
     override fun build(format: AudioDataFormat, output: FloatPcmAudioFilter): FloatPcmAudioFilter {
         return DistortionPcmAudioFilter(output, format.channelCount)
             .setSinOffset(sinOffset)
@@ -127,8 +125,11 @@ class DistortionConfig(
             .setScale(scale)
     }
 
-    override val isEnabled: Boolean get() = sinOffset != 0.0f || sinScale != 1.0f || cosOffset != 0.0f || cosScale != 1.0f || tanOffset != 0.0f || tanScale != 1.0f || offset != 0.0f || scale != 1.0f
-    override val name: String get() = "distortion"
+    override val isEnabled: Boolean = sinOffset != 0.0f || sinScale != 1.0f ||
+            cosOffset != 0.0f || cosScale != 1.0f ||
+            tanOffset != 0.0f || tanScale != 1.0f ||
+            offset != 0.0f || scale != 1.0f
+    override val name: String = "distortion"
 }
 
 class RotationConfig(
@@ -139,8 +140,8 @@ class RotationConfig(
             .setRotationSpeed(rotationHz)
     }
 
-    override val isEnabled: Boolean get() = rotationHz != 0.0
-    override val name: String get() = "rotation"
+    override val isEnabled: Boolean = rotationHz != 0.0
+    override val name: String = "rotation"
 }
 
 class ChannelMixConfig(
@@ -157,8 +158,9 @@ class ChannelMixConfig(
             .setRightToRight(rightToRight)
     }
 
-    override val isEnabled: Boolean get() = leftToLeft != 1f || leftToRight != 0f || rightToLeft != 0f || rightToRight != 1f
-    override val name: String get() = "channelMix"
+    override val isEnabled: Boolean = leftToLeft != 1f || leftToRight != 0f ||
+            rightToLeft != 0f || rightToRight != 1f
+    override val name: String = "channelMix"
 }
 
 class LowPassConfig(
@@ -169,14 +171,12 @@ class LowPassConfig(
             .setSmoothing(smoothing)
     }
 
-    override val isEnabled: Boolean get() = smoothing > 1.0f
-    override val name: String get() = "lowPass"
+    override val isEnabled: Boolean = smoothing > 1.0f
+    override val name: String = "lowPass"
 }
 
 abstract class FilterConfig {
     abstract fun build(format: AudioDataFormat, output: FloatPcmAudioFilter): FloatPcmAudioFilter?
-
     abstract val isEnabled: Boolean
-
     abstract val name: String
 }
