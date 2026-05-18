@@ -51,7 +51,7 @@ class LavalinkPlayer(
     pluginInfoModifiers: List<AudioPluginInfoModifier>
 ) : AudioEventAdapter(), IPlayer {
 
-    // allocateDirect: buffer fora do heap Java — sem GC pressure
+    // allocateDirect: off-heap buffer — avoids GC pressure on audio frames
     private val buffer = ByteBuffer.allocateDirect(StandardAudioDataFormats.DISCORD_OPUS.maximumChunkSize())
     private val mutableFrame = MutableAudioFrame().apply { setBuffer(buffer) }
 
@@ -69,7 +69,7 @@ class LavalinkPlayer(
         it.addListener(audioLossCounter)
     }
 
-    // AtomicReference evita race condition entre onTrackEnd e onTrackStart
+    // AtomicReference prevents race condition between onTrackEnd and onTrackStart
     private val updateFuture = AtomicReference<ScheduledFuture<*>?>()
 
     override val isPlaying: Boolean
@@ -79,6 +79,7 @@ class LavalinkPlayer(
         get() = audioPlayer.playingTrack
 
     fun destroy() {
+        // Cancel any pending update future before destroying the player
         updateFuture.getAndSet(null)?.cancel(false)
         audioPlayer.destroy()
     }
@@ -89,7 +90,7 @@ class LavalinkPlayer(
 
     override fun play(track: AudioTrack) {
         audioPlayer.playTrack(track)
-        // sendPlayerUpdate removido daqui — onTrackStart já agenda o ciclo de updates
+        // Removed redundant sendPlayerUpdate call — onTrackStart schedules the update cycle
     }
 
     override fun stop() {
@@ -114,7 +115,7 @@ class LavalinkPlayer(
     }
 
     override fun onTrackStart(player: AudioPlayer, track: AudioTrack) {
-        // Cancela qualquer future anterior antes de criar um novo
+        // Cancel any previous future before scheduling a new one
         updateFuture.getAndSet(null)?.cancel(false)
 
         val future = socketContext.playerUpdateService.scheduleAtFixedRate(
