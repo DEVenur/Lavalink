@@ -34,25 +34,22 @@ import kotlin.Exception
 class StatsCollector(val socketServer: SocketServer) {
     companion object {
         private val log = LoggerFactory.getLogger(StatsCollector::class.java)
-
         private const val CPU_STATS_REFRESH_INTERVAL_MS = 30000
     }
 
     private val si = SystemInfo()
-    private val hal get() = si.hardware
-    private val os get() = si.operatingSystem
+
+    // val instead of get() — avoids repeated OSHI hardware/os lookups on every access
+    private val hal = si.hardware
+    private val os = si.operatingSystem
 
     private var prevTicks: LongArray? = null
     private val ticksLock = Any()
 
-    @Volatile
-    private var cachedCpu: Cpu? = null
-    @Volatile
-    private var lastCpuCalcTime: Long = 0L
+    @Volatile private var cachedCpu: Cpu? = null
+    @Volatile private var lastCpuCalcTime: Long = 0L
     private val cpuStatsCalculationLock = Any()
 
-
-    // Baseline for cpu stats calcs
     private var prevUpTimeMs: Long = 0L
     private var prevCpuTimeMs: Long = 0L
 
@@ -67,9 +64,8 @@ class StatsCollector(val socketServer: SocketServer) {
             return currentCachedCpu
         }
 
-        // Cache miss or stale, so update
+        // Cache miss or stale — update under lock
         synchronized(cpuStatsCalculationLock) {
-            // Check if another thread updated the cache while this thread waited for the lock.
             if (cachedCpu == null || (System.currentTimeMillis() - lastCpuCalcTime > CPU_STATS_REFRESH_INTERVAL_MS)) {
                 cachedCpu = performCpuStatsCalculation()
                 lastCpuCalcTime = System.currentTimeMillis()
@@ -79,7 +75,7 @@ class StatsCollector(val socketServer: SocketServer) {
     }
 
     /**
-     * Calculate of system and process CPU load.
+     * Calculate system and process CPU load.
      */
     private fun performCpuStatsCalculation(): Cpu {
         val systemLoad: Double
@@ -97,18 +93,15 @@ class StatsCollector(val socketServer: SocketServer) {
         val process = os.getProcess(os.processId)
         if (process == null) {
             log.warn("Cannot calculate CPU load: process is null for PID {}.", os.processId)
-            // If process info is null, load will be 0 for this interval.
         } else {
             val currentProcessUptimeMs = process.upTime
             val currentProcessTotalCpuTimeMs = process.kernelTime + process.userTime
 
-            // The first load of this will always be 0 and skip since we don't have a baseline yet
             if (prevUpTimeMs > 0L) {
                 val uptimeDiffMs = currentProcessUptimeMs - prevUpTimeMs
                 val cpuTimeDiffMs = currentProcessTotalCpuTimeMs - prevCpuTimeMs
 
                 if (uptimeDiffMs > 0) {
-                    // Process load relative to a single core
                     val singleCoreProcessLoad = cpuTimeDiffMs.toDouble() / uptimeDiffMs.toDouble()
                     processLoadNormalized = singleCoreProcessLoad / hal.processor.logicalProcessorCount.toDouble()
                 }
@@ -140,21 +133,27 @@ class StatsCollector(val socketServer: SocketServer) {
     fun retrieveStats(context: SocketContext? = null): Stats {
         val cpu = getOrUpdateCpuStats()
 
-        val playersTotal = intArrayOf(0)
-        val playersPlaying = intArrayOf(0)
+        // Plain vars instead of intArrayOf — no array allocation needed in Kotlin
+        var playersTotal = 0
+        var playersPlaying = 0
+
         socketServer.contexts.forEach { socketContext ->
-            playersTotal[0] += socketContext.players.size
-            playersPlaying[0] += socketContext.playingPlayers.size
+            playersTotal += socketContext.players.size
+            // Capture once per context to avoid double filter() allocation
+            val playing = socketContext.playingPlayers
+            playersPlaying += playing.size
         }
 
         val uptime = System.currentTimeMillis() - Launcher.startTime
 
-        // In bytes
+        // Capture freeMemory once — avoids divergence between two calls during a GC cycle
         val runtime = Runtime.getRuntime()
+        val freeMem = runtime.freeMemory()
+        val totalMem = runtime.totalMemory()
         val mem = Memory(
-            free = runtime.freeMemory(),
-            used = runtime.totalMemory() - runtime.freeMemory(),
-            allocated = runtime.totalMemory(),
+            free = freeMem,
+            used = totalMem - freeMem,
+            allocated = totalMem,
             reservable = runtime.maxMemory()
         )
 
@@ -163,6 +162,8 @@ class StatsCollector(val socketServer: SocketServer) {
             var playerCount = 0
             var totalSent = 0
             var totalNulled = 0
+
+            // Reuse the already-allocated list from playingPlayers
             for (player in context.playingPlayers) {
                 val counter = player.audioLossCounter
                 if (!counter.isDataUsable) continue
@@ -171,7 +172,6 @@ class StatsCollector(val socketServer: SocketServer) {
                 totalNulled += counter.lastMinuteLoss
             }
 
-            // We can't divide by 0
             if (playerCount != 0) {
                 val totalDeficit = playerCount *
                         AudioLossCounter.EXPECTED_PACKET_COUNT_PER_MIN -
@@ -187,8 +187,8 @@ class StatsCollector(val socketServer: SocketServer) {
 
         return StatsData(
             frameStats,
-            playersTotal[0],
-            playersPlaying[0],
+            playersTotal,
+            playersPlaying,
             uptime,
             mem,
             cpu
