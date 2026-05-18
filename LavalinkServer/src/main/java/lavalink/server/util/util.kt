@@ -40,7 +40,6 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.*
 
-
 fun AudioTrack.toTrack(
     audioPlayerManager: AudioPlayerManager,
     pluginInfoModifiers: List<AudioPluginInfoModifier>
@@ -79,27 +78,28 @@ fun AudioPlaylist.toPlaylistInfo(): PlaylistInfo {
     return PlaylistInfo(this.name, if (this.selectedTrack == null) -1 else this.tracks.indexOf(this.selectedTrack))
 }
 
-
 fun AudioPlaylist.toPluginInfo(pluginInfoModifiers: List<AudioPluginInfoModifier>): JsonObject {
-    val pluginInfo = pluginInfoModifiers.fold(JsonObject(emptyMap())) { acc, it ->
+    return pluginInfoModifiers.fold(JsonObject(emptyMap())) { acc, it ->
         val jsonObject = it.modifyAudioPlaylistPluginInfo(this) ?: JsonObject(emptyMap())
         acc + jsonObject
     }
-    return pluginInfo
 }
 
 fun LavalinkPlayer.toPlayer(context: SocketContext, pluginInfoModifiers: List<AudioPluginInfoModifier>): Player {
     val connection = context.getMediaConnection(this).gatewayConnection
     val voiceServerInfo = context.koe.getConnection(guildId)?.voiceServerInfo
 
+    // Capture track reference once — avoids repeated volatile reads in the same call
+    val currentTrack = track
+
     return Player(
         guildId.toString(),
-        track?.toTrack(context.audioPlayerManager, pluginInfoModifiers),
+        currentTrack?.toTrack(context.audioPlayerManager, pluginInfoModifiers),
         audioPlayer.volume,
         audioPlayer.isPaused,
         PlayerState(
             System.currentTimeMillis(),
-            track?.position ?: 0,
+            currentTrack?.position ?: 0,
             connection?.isOpen ?: false,
             connection?.ping ?: -1
         ),
@@ -112,7 +112,6 @@ fun LavalinkPlayer.toPlayer(context: SocketContext, pluginInfoModifiers: List<Au
         filters.toFilters(),
     )
 }
-
 
 fun getRootCause(throwable: Throwable?): Throwable {
     var rootCause = throwable
@@ -135,7 +134,8 @@ fun decodeTrack(audioPlayerManager: AudioPlayerManager, message: String): AudioT
 }
 
 fun encodeTrack(audioPlayerManager: AudioPlayerManager, track: AudioTrack): String {
-    val baos = ByteArrayOutputStream()
+    // Pre-size buffer to avoid reallocation — typical Opus track encodes are small
+    val baos = ByteArrayOutputStream(256)
     audioPlayerManager.encodeTrack(MessageOutput(baos), track)
     return Base64.getEncoder().encodeToString(baos.toByteArray())
 }
@@ -156,7 +156,8 @@ fun Exception.Companion.fromFriendlyException(e: FriendlyException) = Exception(
     e.message,
     Exception.Severity.fromFriendlyException(e.severity),
     e.toString(),
-    e.stackTraceToString()
+    // Limit stack trace to 20 lines — consistent with EventEmitter
+    e.stackTrace.take(20).joinToString("\n") { "\tat $it" }.let { "$e\n$it" }
 )
 
 fun AudioTrackEndReason.toLavalink() = when (this) {
