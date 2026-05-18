@@ -22,72 +22,84 @@
 package lavalink.server.player
 
 import com.sedmelluq.discord.lavaplayer.player.event.*
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 
 class AudioLossCounter : AudioEventListener {
     companion object {
         const val EXPECTED_PACKET_COUNT_PER_MIN = 60 * 1000 / 20 // 20ms packets
-        private const val ACCEPTABLE_TRACK_SWITCH_TIME = 100 //ms
+        private const val ACCEPTABLE_TRACK_SWITCH_TIME = 100L // ms
     }
 
-    private var playingSince = Long.MAX_VALUE
-    private var lastTrackStarted = Long.MAX_VALUE / 2
-    private var lastTrackEnded = Long.MAX_VALUE
+    // AtomicLong for thread-safe timestamp tracking across audio threads
+    private val playingSince = AtomicLong(Long.MAX_VALUE)
+    private val lastTrackStarted = AtomicLong(Long.MAX_VALUE / 2)
+    private val lastTrackEnded = AtomicLong(Long.MAX_VALUE)
 
-    private var curMinute: Long = 0
-    private var curLoss = 0
-    private var curSucc = 0
+    // Minute window tracking — written only under checkTime lock
+    @Volatile private var curMinute: Long = 0
 
-    var lastMinuteLoss = 0
+    // AtomicInteger for lock-free counter increments in the audio hot path
+    private val curLoss = AtomicInteger(0)
+    private val curSucc = AtomicInteger(0)
+
+    @Volatile var lastMinuteLoss = 0
         private set
-    var lastMinuteSuccess = 0
+    @Volatile var lastMinuteSuccess = 0
         private set
 
     fun onLoss() {
         checkTime()
-        curLoss++
+        curLoss.incrementAndGet()
     }
 
     fun onSuccess() {
         checkTime()
-        curSucc++
+        curSucc.incrementAndGet()
     }
 
     val isDataUsable: Boolean
         get() {
-            // Check that there isn't a significant gap in playback. If no track has ended yet, we can look past that
-            if (lastTrackStarted - lastTrackEnded > ACCEPTABLE_TRACK_SWITCH_TIME && lastTrackEnded != Long.MAX_VALUE) {
+            val ended = lastTrackEnded.get()
+            // Check that there isn't a significant gap in playback
+            if (lastTrackStarted.get() - ended > ACCEPTABLE_TRACK_SWITCH_TIME && ended != Long.MAX_VALUE) {
                 return false
             }
-
             // Check that we have at least stats for the last minute
             val lastMin = System.currentTimeMillis() / 60000 - 1
-            return playingSince < lastMin * 60000
+            return playingSince.get() < lastMin * 60000
         }
 
     private fun checkTime() {
-        val actualMinute = System.currentTimeMillis() / 60000
+        val now = System.currentTimeMillis()
+        val actualMinute = now / 60000
+        // Only one thread needs to rotate the minute window
         if (curMinute != actualMinute) {
-            lastMinuteLoss = curLoss
-            lastMinuteSuccess = curSucc
-            curLoss = 0
-            curSucc = 0
-            curMinute = actualMinute
+            synchronized(this) {
+                if (curMinute != actualMinute) {
+                    lastMinuteLoss = curLoss.getAndSet(0)
+                    lastMinuteSuccess = curSucc.getAndSet(0)
+                    curMinute = actualMinute
+                }
+            }
         }
     }
 
     override fun onEvent(event: AudioEvent) {
+        // Capture time once to avoid multiple currentTimeMillis() calls per event
+        val now = System.currentTimeMillis()
         when (event) {
             is PlayerPauseEvent,
             is TrackEndEvent,
-            -> lastTrackEnded = System.currentTimeMillis()
+            -> lastTrackEnded.set(now)
 
             is PlayerResumeEvent,
             is TrackStartEvent,
             -> {
-                lastTrackStarted = System.currentTimeMillis()
-                if (lastTrackStarted - lastTrackEnded > ACCEPTABLE_TRACK_SWITCH_TIME || playingSince == Long.MAX_VALUE) {
-                    playingSince = System.currentTimeMillis()
-                    lastTrackEnded = Long.MAX_VALUE
+                lastTrackStarted.set(now)
+                if (now - lastTrackEnded.get() > ACCEPTABLE_TRACK_SWITCH_TIME || playingSince.get() == Long.MAX_VALUE) {
+                    playingSince.set(now)
+                    lastTrackEnded.set(Long.MAX_VALUE)
                 }
             }
         }
