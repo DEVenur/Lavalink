@@ -1,4 +1,4 @@
- # Lavalink
+# Lavalink
 
 <img align="right" src="/branding/lavalink.svg" width=200 alt="Lavalink logo">
 
