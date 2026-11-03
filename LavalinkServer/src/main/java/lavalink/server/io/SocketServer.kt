@@ -106,7 +106,12 @@ final class SocketServer(
         if (resumable != null) {
             session.attributes["sessionId"] = resumable.sessionId
             sessions[resumable.sessionId] = resumable
-            resumable.resume(session)
+            if (!resumable.resume(session)) {
+                sessions.remove(resumable.sessionId, resumable)
+                session.close(CloseStatus.POLICY_VIOLATION)
+                log.warn("Rejected resume for expired session ${resumable.sessionId}")
+                return
+            }
             log.info("Resumed session with id $sessionId")
             resumable.eventEmitter.onWebSocketOpen(true)
             return
