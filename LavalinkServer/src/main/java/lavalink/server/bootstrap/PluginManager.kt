@@ -190,11 +190,7 @@ class PluginManager(val config: PluginsConfig) {
                 throw RuntimeException("Invalid or excessive redirects while downloading plugin")
             }
 
-            val nextUrl = currentUrl.resolve(location)
-            if (currentUrl.scheme.equals("https", true) && !nextUrl.scheme.equals("https", true)) {
-                throw RuntimeException("Refusing insecure HTTPS downgrade while downloading plugin")
-            }
-            currentUrl = nextUrl
+            currentUrl = PluginDownload.resolveRedirect(currentUrl, location)
         }
 
         throw RuntimeException("Too many redirects while downloading plugin")
