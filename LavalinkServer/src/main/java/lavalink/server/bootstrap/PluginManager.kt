@@ -7,12 +7,10 @@ import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver
 import java.io.File
-import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLClassLoader
-import java.nio.channels.Channels
 import java.util.*
 import java.util.jar.JarFile
 
@@ -127,28 +125,65 @@ class PluginManager(val config: PluginsConfig) {
         }
     }
 
-    private fun downloadJar(output: File, url: String, isRetry: Boolean = false) {
-        if (!isRetry) {
-            log.info("Downloading $url")
+    private fun downloadJar(output: File, url: String) {
+        log.info("Downloading $url")
+
+        val parent = output.absoluteFile.parentFile
+        if (!parent.exists() && !parent.mkdirs()) {
+            throw RuntimeException("Failed to create plugin directory: ${parent.path}")
         }
 
-        Channels.newChannel(URL(url).openStream()).use {
-            FileOutputStream(output).channel.transferFrom(it, 0, Long.MAX_VALUE)
-        }
+        val temporaryFile = File.createTempFile("${output.name}.", ".part", parent)
+        var connection: java.net.URLConnection? = null
 
-        if (output.length() == 0L) {
-            if (isRetry) {
-                if (!output.delete()) {
-                    log.warn("Could not delete empty plugin file: ${output.path}")
+        try {
+            connection = URL(url).openConnection().apply {
+                connectTimeout = 10_000
+                readTimeout = 30_000
+            }
+
+            if (connection is HttpURLConnection) {
+                val responseCode = connection.responseCode
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    throw RuntimeException("Failed to download plugin from $url: HTTP $responseCode")
                 }
-                throw RuntimeException("Failed to download plugin from $url")
             }
 
-            log.warn("Downloaded plugin is empty, re-downloading...")
-            if (!output.delete()) {
-                throw RuntimeException("Failed to delete empty plugin file: ${output.path}")
+            connection.getInputStream().use { input ->
+                temporaryFile.outputStream().use { outputStream ->
+                    input.copyTo(outputStream)
+                }
             }
-            downloadJar(output, url, true)
+
+            if (temporaryFile.length() == 0L) {
+                throw RuntimeException("Downloaded plugin is empty: $url")
+            }
+
+            JarFile(temporaryFile).use { jar ->
+                if (loadPluginManifests(jar).isEmpty()) {
+                    throw RuntimeException("Downloaded jar does not contain a Lavalink plugin manifest: $url")
+                }
+            }
+
+            try {
+                java.nio.file.Files.move(
+                    temporaryFile.toPath(),
+                    output.toPath(),
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                java.nio.file.Files.move(
+                    temporaryFile.toPath(),
+                    output.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+        } finally {
+            if (temporaryFile.exists() && !temporaryFile.delete()) {
+                log.warn("Could not delete temporary plugin file: ${temporaryFile.path}")
+            }
+            (connection as? HttpURLConnection)?.disconnect()
         }
     }
 
