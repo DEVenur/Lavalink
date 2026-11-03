@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.URI
 
 class PluginDownloadTest {
     @Test
@@ -24,6 +25,35 @@ class PluginDownloadTest {
 
         assertThrows(IOException::class.java) {
             PluginDownload.copyWithLimit(ByteArrayInputStream(ByteArray(1025)), output, 1024)
+        }
+    }
+
+    @Test
+    fun acceptsSafeRedirects() {
+        val current = URI("https://repo.example.com/releases/plugin.jar")
+
+        kotlin.test.assertEquals(
+            URI("https://cdn.example.com/plugin.jar"),
+            PluginDownload.resolveRedirect(current, "https://cdn.example.com/plugin.jar")
+        )
+        kotlin.test.assertEquals(
+            URI("https://repo.example.com/releases/plugin-v2.jar"),
+            PluginDownload.resolveRedirect(current, "plugin-v2.jar")
+        )
+    }
+
+    @Test
+    fun rejectsUnsafeRedirects() {
+        val current = URI("https://repo.example.com/releases/plugin.jar")
+
+        assertThrows(IllegalArgumentException::class.java) {
+            PluginDownload.resolveRedirect(current, "http://repo.example.com/plugin.jar")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PluginDownload.resolveRedirect(current, "file:///etc/passwd")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PluginDownload.resolveRedirect(current, "https://user:password@repo.example.com/plugin.jar")
         }
     }
 
