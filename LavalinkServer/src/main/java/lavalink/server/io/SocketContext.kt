@@ -62,6 +62,7 @@ class SocketContext(
 
     companion object {
         private val log = LoggerFactory.getLogger(SocketContext::class.java)
+        private const val MAX_RESUME_QUEUE_BYTES = 8L * 1024 * 1024
     }
 
     //guildId <-> LavalinkPlayer
@@ -71,7 +72,7 @@ class SocketContext(
 
     @Volatile
     var sessionPaused = false
-    private val resumeEventQueue = ConcurrentLinkedQueue<String>()
+    private val resumeEventQueue = BoundedEventQueue(MAX_RESUME_QUEUE_BYTES)
 
     /** Null means disabled. See implementation notes */
     var resumable: Boolean = false
@@ -138,7 +139,9 @@ class SocketContext(
     }
 
     fun pause() {
-        sessionPaused = true
+        synchronized(this) {
+            sessionPaused = true
+        }
         sessionTimeoutFuture = executor.schedule<Unit>({
             socketServer.onSessionResumeTimeout(this)
         }, resumeTimeout, TimeUnit.SECONDS)
@@ -154,9 +157,23 @@ class SocketContext(
     private fun send(payload: String) {
         eventEmitter.onWebSocketMessageOut(payload)
 
-        if (sessionPaused) {
-            resumeEventQueue.add(payload)
-            return
+        val queueResult = synchronized(this) {
+            if (!sessionPaused) {
+                0
+            } else if (resumeEventQueue.offer(payload)) {
+                1
+            } else {
+                2
+            }
+        }
+
+        when (queueResult) {
+            1 -> return
+            2 -> {
+                log.warn("Resumable session $sessionId exceeded the event queue limit; terminating the session")
+                socketServer.onSessionResumeTimeout(this)
+                return
+            }
         }
 
         if (!session.isOpen) return
@@ -180,20 +197,26 @@ class SocketContext(
     fun stopResumeTimeout() = sessionTimeoutFuture?.cancel(false) ?: false
 
     fun resume(session: WebSocketSession) {
-        sessionPaused = false
-        this.session = session
-        sendMessage(Message.Serializer, Message.ReadyEvent(true, sessionId))
-        log.info("Replaying ${resumeEventQueue.size} events")
-
-        // Bulk actions are not guaranteed to be atomic, so we need to do this imperatively
-        while (resumeEventQueue.isNotEmpty()) {
-            send(resumeEventQueue.remove())
+        val queuedEvents = synchronized(this) {
+            this.session = session
+            sessionPaused = false
+            resumeEventQueue.drain()
         }
+
+        sendMessage(Message.Serializer, Message.ReadyEvent(true, sessionId))
+        log.info("Replaying ${queuedEvents.size} events")
+
+        // Bulk actions are not guaranteed to be atomic, so replay events in their original order.
+        queuedEvents.forEach(::send)
 
         players.values.forEach { SocketServer.sendPlayerUpdate(this, it) }
     }
 
     internal fun shutdown() {
+        synchronized(this) {
+            sessionPaused = false
+            resumeEventQueue.clear()
+        }
         log.info("Shutting down ${playingPlayers.size} playing players.")
         executor.shutdown()
         playerUpdateService.shutdown()
