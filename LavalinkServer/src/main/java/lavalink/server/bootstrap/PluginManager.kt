@@ -6,6 +6,8 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -18,6 +20,7 @@ import java.util.jar.JarFile
 class PluginManager(val config: PluginsConfig) {
     companion object {
         private val log: Logger = LoggerFactory.getLogger(PluginManager::class.java)
+        private const val MAX_METADATA_SIZE_BYTES = 1024L * 1024
     }
 
     final val pluginManifests: MutableList<PluginManifest> = mutableListOf()
@@ -112,10 +115,8 @@ class PluginManager(val config: PluginsConfig) {
         val metadataUrl = baseSplitPath.joinToString("/") + "/maven-metadata.xml"
 
         val conn = try {
-            (URL(metadataUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 10_000
-                readTimeout = 30_000
-            }
+            openPluginConnection(metadataUrl) as? HttpURLConnection
+                ?: throw RuntimeException("Plugin metadata endpoint must use HTTP or HTTPS")
         } catch (ex: Exception) {
             log.warn("Failed to check for updates for ${declaration.name}: ${ex.message}")
             return
@@ -128,9 +129,17 @@ class PluginManager(val config: PluginsConfig) {
             }
 
             val metadata = try {
-                conn.inputStream.use {
-                    xml.decodeFromReader(Metadata.serializer(), KtXmlReader(it))
+                if (conn.contentLengthLong > MAX_METADATA_SIZE_BYTES) {
+                    throw RuntimeException("Maven metadata exceeds the size limit")
                 }
+                val metadataBytes = ByteArrayOutputStream()
+                conn.inputStream.use { input ->
+                    PluginDownload.copyWithLimit(input, metadataBytes, MAX_METADATA_SIZE_BYTES)
+                }
+                xml.decodeFromReader(
+                    Metadata.serializer(),
+                    KtXmlReader(ByteArrayInputStream(metadataBytes.toByteArray()))
+                )
             } catch (ex: Exception) {
                 log.warn("Failed to parse update metadata for ${declaration.name}: ${ex.message}")
                 return
