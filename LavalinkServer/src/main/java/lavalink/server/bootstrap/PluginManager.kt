@@ -37,16 +37,23 @@ class PluginManager(val config: PluginsConfig) {
         if (config.plugins.isEmpty()) return
 
         val directory = File(config.pluginsDir)
-        directory.mkdir()
+        if (!directory.exists() && !directory.mkdirs()) {
+            throw RuntimeException("Failed to create plugin directory: ${directory.path}")
+        }
+        if (!directory.isDirectory) {
+            throw RuntimeException("Plugin path is not a directory: ${directory.path}")
+        }
 
-        val pluginJars = directory.listFiles()?.filter { it.extension == "jar" }
-            ?.flatMap { file ->
+        val pluginFiles = directory.listFiles()
+            ?: throw RuntimeException("Failed to list plugin directory: ${directory.path}")
+
+        val pluginJars = pluginFiles.filter { it.isFile && it.extension == "jar" }
+            .flatMap { file ->
                 JarFile(file).use { jar ->
                     loadPluginManifests(jar).map { manifest -> PluginJar(manifest, file) }
                 }
             }
-            ?.onEach { log.info("Found plugin '${it.manifest.name}' version '${it.manifest.version}'") }
-            ?: return
+            .onEach { log.info("Found plugin '${it.manifest.name}' version '${it.manifest.version}'") }
 
         val declarations = config.plugins.map { declaration ->
             if (declaration.dependency == null) throw RuntimeException("Illegal dependency declaration: null")
@@ -240,7 +247,7 @@ class PluginManager(val config: PluginsConfig) {
                 throw RuntimeException("No plugin manifest found in ${file.path}")
             }
 
-            val allowedPaths = manifests.map { manifest -> manifest.path.replace(".", "/") }
+            val allowedPaths = manifests.map { manifest -> "${manifest.path.replace(".", "/")}/" }
 
             for (entry in it.entries()) {
                 if (entry.isDirectory ||
