@@ -158,6 +158,43 @@ class PluginManager(val config: PluginsConfig) {
         }
     }
 
+    private fun openPluginConnection(initialUrl: String): java.net.URLConnection {
+        var currentUrl = java.net.URI(initialUrl)
+        repeat(6) { redirectCount ->
+            require(currentUrl.scheme.equals("https", true) || currentUrl.scheme.equals("http", true)) {
+                "Plugin download redirects must use HTTP or HTTPS"
+            }
+            require(!currentUrl.host.isNullOrBlank() && currentUrl.userInfo == null) {
+                "Invalid plugin download URL"
+            }
+
+            val connection = URL(currentUrl.toString()).openConnection().apply {
+                connectTimeout = 10_000
+                readTimeout = 30_000
+                if (this is HttpURLConnection) instanceFollowRedirects = false
+            }
+
+            if (connection !is HttpURLConnection) return connection
+
+            val responseCode = connection.responseCode
+            if (responseCode !in 300..399) return connection
+
+            val location = connection.getHeaderField("Location")
+            connection.disconnect()
+            if (location.isNullOrBlank() || redirectCount == 5) {
+                throw RuntimeException("Invalid or excessive redirects while downloading plugin")
+            }
+
+            val nextUrl = currentUrl.resolve(location)
+            if (currentUrl.scheme.equals("https", true) && !nextUrl.scheme.equals("https", true)) {
+                throw RuntimeException("Refusing insecure HTTPS downgrade while downloading plugin")
+            }
+            currentUrl = nextUrl
+        }
+
+        throw RuntimeException("Too many redirects while downloading plugin")
+    }
+
     private fun downloadJar(output: File, url: String, maxSizeBytes: Long) {
         log.info("Downloading $url")
 
@@ -170,10 +207,7 @@ class PluginManager(val config: PluginsConfig) {
         var connection: java.net.URLConnection? = null
 
         try {
-            connection = URL(url).openConnection().apply {
-                connectTimeout = 10_000
-                readTimeout = 30_000
-            }
+            connection = openPluginConnection(url)
 
             if (connection is HttpURLConnection) {
                 val responseCode = connection.responseCode
