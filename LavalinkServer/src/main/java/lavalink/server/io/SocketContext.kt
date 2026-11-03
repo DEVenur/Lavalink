@@ -74,6 +74,7 @@ class SocketContext(
     var sessionPaused = false
     private val resumeEventQueue = BoundedEventQueue(MAX_RESUME_QUEUE_BYTES)
     private var resumeInvalidated = false
+    private var resumeTimeoutStopped = false
 
     /** Null means disabled. See implementation notes */
     var resumable: Boolean = false
@@ -143,8 +144,17 @@ class SocketContext(
         synchronized(this) {
             if (executor.isShutdown || resumeInvalidated) return
             sessionPaused = true
+            resumeTimeoutStopped = false
             sessionTimeoutFuture = executor.schedule<Unit>({
-                socketServer.onSessionResumeTimeout(this)
+                val shouldExpire = synchronized(this) {
+                    if (!sessionPaused || resumeInvalidated || resumeTimeoutStopped) {
+                        false
+                    } else {
+                        resumeInvalidated = true
+                        true
+                    }
+                }
+                if (shouldExpire) socketServer.onSessionResumeTimeout(this)
             }, resumeTimeout, TimeUnit.SECONDS)
         }
         eventEmitter.onSocketContextPaused()
@@ -198,21 +208,22 @@ class SocketContext(
      * @return true if we can resume, false otherwise
      */
     fun stopResumeTimeout() = synchronized(this) {
+        if (resumeInvalidated) return false
         val timeout = sessionTimeoutFuture ?: return false
         val cancelled = timeout.cancel(false)
-        if (cancelled) sessionTimeoutFuture = null
+        if (cancelled) {
+            sessionTimeoutFuture = null
+            resumeTimeoutStopped = true
+        }
         cancelled
     }
 
     fun resume(session: WebSocketSession): Boolean {
         val queuedEvents = synchronized(this) {
             if (executor.isShutdown || resumeInvalidated) return false
-            val timeout = sessionTimeoutFuture
-            if (timeout != null && !timeout.cancel(false)) {
-                resumeInvalidated = true
-                return false
-            }
+            sessionTimeoutFuture?.cancel(false)
             sessionTimeoutFuture = null
+            resumeTimeoutStopped = true
             this.session = session
             sessionPaused = false
             resumeEventQueue.drain()
@@ -231,6 +242,7 @@ class SocketContext(
     internal fun shutdown() {
         synchronized(this) {
             resumeInvalidated = true
+            resumeTimeoutStopped = true
             sessionPaused = false
             resumeEventQueue.clear()
             executor.shutdown()
