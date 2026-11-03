@@ -35,6 +35,7 @@ class PluginManager(val config: PluginsConfig) {
 
     private fun manageDownloads() {
         if (config.plugins.isEmpty()) return
+        require(config.maxPluginSizeBytes > 0) { "lavalink.maxPluginSizeBytes must be positive" }
 
         val directory = File(config.pluginsDir)
         if (!directory.exists() && !directory.mkdirs()) {
@@ -88,7 +89,7 @@ class PluginManager(val config: PluginsConfig) {
 
             if (currentVersionFiles.isEmpty()) {
                 // Keep the previously installed version until the replacement is downloaded and validated.
-                downloadJar(targetFile, declaration.url)
+                downloadJar(targetFile, declaration.url, config.maxPluginSizeBytes)
             }
 
             val outdatedFiles = jars
@@ -157,7 +158,7 @@ class PluginManager(val config: PluginsConfig) {
         }
     }
 
-    private fun downloadJar(output: File, url: String) {
+    private fun downloadJar(output: File, url: String, maxSizeBytes: Long) {
         log.info("Downloading $url")
 
         val parent = output.absoluteFile.parentFile
@@ -181,9 +182,13 @@ class PluginManager(val config: PluginsConfig) {
                 }
             }
 
+            if (connection.contentLengthLong > maxSizeBytes) {
+                throw RuntimeException("Plugin artifact exceeds the configured size limit of $maxSizeBytes bytes: $url")
+            }
+
             connection.getInputStream().use { input ->
                 temporaryFile.outputStream().use { outputStream ->
-                    input.copyTo(outputStream)
+                    PluginDownload.copyWithLimit(input, outputStream, maxSizeBytes)
                 }
             }
 
