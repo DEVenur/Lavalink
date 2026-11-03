@@ -6,11 +6,20 @@ description: Make your own plugin for Lavalink.
 
 !!! info
 
-    If your plugin is developed in Kotlin make sure you are using **Kotlin v1.8.22**
+    If your plugin is developed in Kotlin make sure you are using **Kotlin v2.1.20**
 
 Follow [these steps](https://github.com/lavalink-devs/lavalink-plugin-template#how-to-use-this-template) to set up a new Lavalink plugin
 
-Now you can start writing your plugin. You can test your plugin against Lavalink by running Gradle with the
+Now you can start writing your plugin.
+
+!!! warning "Plugin trust boundary"
+
+    Plugins are loaded as executable code inside the Lavalink process. They are **not sandboxed** and can access
+    the same process permissions, files, network, and resources as Lavalink. Only install plugins from sources you
+    trust. Metadata and repository URLs are validated, but this does not make an untrusted plugin safe.
+
+    Plugin dependency coordinates must use the `group:artifact:version` form. Custom plugin repositories must use
+    HTTP or HTTPS URLs without embedded credentials, query strings, or fragments. You can test your plugin against Lavalink by running Gradle with the
 `:runLavalink` Gradle task. The [Gradle plugin documentation](https://github.com/lavalink-devs/lavalink-gradle-plugin#running-the-plugin) might be helpful.
 
 Lavalink has a [plugin API](https://javadoc.io/doc/dev.arbjerg.lavalink/plugin-api/latest/dev/arbjerg/lavalink/api/package-summary.html) which you can integrate with. The API is
