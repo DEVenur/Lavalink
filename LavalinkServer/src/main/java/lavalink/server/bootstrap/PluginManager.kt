@@ -176,7 +176,12 @@ class PluginManager(val config: PluginsConfig) {
 
             if (connection !is HttpURLConnection) return connection
 
-            val responseCode = connection.responseCode
+            val responseCode = try {
+                connection.responseCode
+            } catch (ex: Exception) {
+                connection.disconnect()
+                throw ex
+            }
             if (responseCode !in 300..399) return connection
 
             val location = connection.getHeaderField("Location")
