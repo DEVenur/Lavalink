@@ -1,6 +1,7 @@
 package lavalink.server.bootstrap
 
 import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
@@ -32,7 +33,7 @@ class PluginDownloadTest {
     fun acceptsSafeRedirects() {
         val current = URI("https://repo.example.com/releases/plugin.jar")
 
-        kotlin.test.assertEquals(
+        assertEquals(
             URI("https://cdn.example.com/plugin.jar"),
             PluginDownload.resolveRedirect(current, "https://cdn.example.com/plugin.jar")
         )
