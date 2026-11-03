@@ -73,6 +73,7 @@ class SocketContext(
     @Volatile
     var sessionPaused = false
     private val resumeEventQueue = BoundedEventQueue(MAX_RESUME_QUEUE_BYTES)
+    private var resumeInvalidated = false
 
     /** Null means disabled. See implementation notes */
     var resumable: Boolean = false
@@ -140,11 +141,12 @@ class SocketContext(
 
     fun pause() {
         synchronized(this) {
+            if (executor.isShutdown || resumeInvalidated) return
             sessionPaused = true
+            sessionTimeoutFuture = executor.schedule<Unit>({
+                socketServer.onSessionResumeTimeout(this)
+            }, resumeTimeout, TimeUnit.SECONDS)
         }
-        sessionTimeoutFuture = executor.schedule<Unit>({
-            socketServer.onSessionResumeTimeout(this)
-        }, resumeTimeout, TimeUnit.SECONDS)
         eventEmitter.onSocketContextPaused()
     }
 
@@ -163,6 +165,7 @@ class SocketContext(
             } else if (resumeEventQueue.offer(payload)) {
                 1
             } else {
+                resumeInvalidated = true
                 2
             }
         }
@@ -196,8 +199,9 @@ class SocketContext(
      */
     fun stopResumeTimeout() = sessionTimeoutFuture?.cancel(false) ?: false
 
-    fun resume(session: WebSocketSession) {
+    fun resume(session: WebSocketSession): Boolean {
         val queuedEvents = synchronized(this) {
+            if (executor.isShutdown || resumeInvalidated) return false
             this.session = session
             sessionPaused = false
             resumeEventQueue.drain()
@@ -210,15 +214,17 @@ class SocketContext(
         queuedEvents.forEach(::send)
 
         players.values.forEach { SocketServer.sendPlayerUpdate(this, it) }
+        return true
     }
 
     internal fun shutdown() {
         synchronized(this) {
+            resumeInvalidated = true
             sessionPaused = false
             resumeEventQueue.clear()
+            executor.shutdown()
         }
         log.info("Shutting down ${playingPlayers.size} playing players.")
-        executor.shutdown()
         playerUpdateService.shutdown()
         players.values.forEach {
             this.destroyPlayer(it.guildId)
