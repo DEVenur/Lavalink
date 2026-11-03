@@ -107,4 +107,5 @@ Additionally, you can override the default plugin path where Lavalink saves and 
 ```yaml
 lavalink:
   pluginsDir: "./lavalink-plugins" # optional, defaults to "./plugins"
+  maxPluginSizeBytes: 104857600 # optional, defaults to 100 MiB; limits each downloaded plugin JAR
 ```
