@@ -93,35 +93,50 @@ class PluginManager(val config: PluginsConfig) {
         val baseSplitPath = declaration.url.split('/').dropLast(2)
         val metadataUrl = baseSplitPath.joinToString("/") + "/maven-metadata.xml"
 
-        val url = URL(metadataUrl)
-        val conn = url.openConnection() as HttpURLConnection
-
-        if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-            log.warn("Failed to check for updates for ${declaration.name}: ${conn.responseMessage}")
+        val conn = try {
+            (URL(metadataUrl).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 10_000
+                readTimeout = 30_000
+            }
+        } catch (ex: Exception) {
+            log.warn("Failed to check for updates for ${declaration.name}: ${ex.message}")
             return
         }
 
-        val metadata: Metadata
-        conn.inputStream.use {
-            metadata = xml.decodeFromReader(Metadata.serializer(), KtXmlReader(it))
-        }
+        try {
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                log.warn("Failed to check for updates for ${declaration.name}: HTTP ${conn.responseCode} ${conn.responseMessage}")
+                return
+            }
 
-        val current = Version.fromSemver(declaration.version)
-        var latest = metadata.versioning.latest
-        if (latest.isEmpty()) {
-            latest = metadata.versioning.release
-        }
-        if (latest.isEmpty()) {
-            latest = (metadata.versioning.versions.lastOrNull() ?: "")
-        }
+            val metadata = try {
+                conn.inputStream.use {
+                    xml.decodeFromReader(Metadata.serializer(), KtXmlReader(it))
+                }
+            } catch (ex: Exception) {
+                log.warn("Failed to parse update metadata for ${declaration.name}: ${ex.message}")
+                return
+            }
 
-        if (latest.isEmpty()) {
-            return
-        }
+            val current = Version.fromSemver(declaration.version)
+            var latest = metadata.versioning.latest
+            if (latest.isEmpty()) {
+                latest = metadata.versioning.release
+            }
+            if (latest.isEmpty()) {
+                latest = metadata.versioning.versions.lastOrNull() ?: ""
+            }
 
-        val latestVersion = Version.fromSemver(latest)
-        if (latestVersion > current) {
-            log.warn("A newer version of '${declaration.name}' was found: '$latestVersion', The current version is '$current' please update the version in your configuration.")
+            if (latest.isEmpty()) return
+
+            val latestVersion = Version.fromSemver(latest)
+            if (latestVersion > current) {
+                log.warn("A newer version of '${declaration.name}' was found: '$latestVersion', The current version is '$current' please update the version in your configuration.")
+            }
+        } catch (ex: Exception) {
+            log.warn("Failed to check for updates for ${declaration.name}: ${ex.message}")
+        } finally {
+            conn.disconnect()
         }
     }
 
