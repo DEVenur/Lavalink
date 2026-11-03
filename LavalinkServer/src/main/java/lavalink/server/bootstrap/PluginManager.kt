@@ -64,25 +64,19 @@ class PluginManager(val config: PluginsConfig) {
             val jars = pluginJars.filter { it.manifest.name == declaration.name }.takeIf { it.isNotEmpty() }
                 ?: pluginJars.filter { matchName(it, declaration.name) }
 
-            var hasCurrentVersion = false
+            val currentVersionExists = jars.any { it.manifest.version == declaration.version }
+            val outdatedJars = jars.filter { it.manifest.version != declaration.version }
 
-            for (jar in jars) {
-                if (jar.manifest.version == declaration.version) {
-                    hasCurrentVersion = true
-                    // Don't clean up the jar if it's a current version.
-                    continue
-                }
-
-                // Delete versions of the plugin that aren't the same as declared version.
-                if (!jar.file.delete()) throw RuntimeException("Failed to delete ${jar.file.path}")
-                log.info("Deleted ${jar.file.path} (new version: ${declaration.version})")
-
+            if (!currentVersionExists) {
+                // Keep the previously installed version until the replacement is downloaded and validated.
+                val file = File(directory, declaration.canonicalJarName)
+                downloadJar(file, declaration.url)
             }
 
-            if (!hasCurrentVersion) {
-                val url = declaration.url
-                val file = File(directory, declaration.canonicalJarName)
-                downloadJar(file, url)
+            // Remove outdated versions only after the requested version is available.
+            for (jar in outdatedJars) {
+                if (!jar.file.delete()) throw RuntimeException("Failed to delete ${jar.file.path}")
+                log.info("Deleted ${jar.file.path} (new version: ${declaration.version})")
             }
 
             checkPluginForUpdates(declaration)
