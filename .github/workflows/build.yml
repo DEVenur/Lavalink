@@ -31,6 +31,10 @@ on:
       SIGNING_IN_MEMORY_KEY_PASSWORD:
         required: false
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
