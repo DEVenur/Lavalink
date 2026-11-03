@@ -39,7 +39,9 @@ Session-Resumed: true
 In case your websocket library doesn't support reading headers you can listen for the [ready op](../api/websocket.md#ready-op) and check the `resumed` field.
 
 When a session is paused, any events that would normally have been sent are queued up. When the session is resumed, this
-queue is then emptied and the events are replayed.
+queue is then emptied and the events are replayed. To protect node memory, the queued event payloads are limited to 8 MiB
+per session. If a session exceeds this limit, Lavalink terminates that resumable session and destroys its players; the
+client must establish a new session and recreate its players.
 
 ---
 
