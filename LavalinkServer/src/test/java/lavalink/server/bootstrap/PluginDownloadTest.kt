@@ -37,7 +37,7 @@ class PluginDownloadTest {
             URI("https://cdn.example.com/plugin.jar"),
             PluginDownload.resolveRedirect(current, "https://cdn.example.com/plugin.jar")
         )
-        kotlin.test.assertEquals(
+        assertEquals(
             URI("https://repo.example.com/releases/plugin-v2.jar"),
             PluginDownload.resolveRedirect(current, "plugin-v2.jar")
         )
