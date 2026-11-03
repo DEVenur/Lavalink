@@ -23,4 +23,18 @@ internal object PluginDownload {
             totalBytes += bytesRead
         }
     }
+    fun resolveRedirect(currentUrl: java.net.URI, location: String): java.net.URI {
+        val nextUrl = currentUrl.resolve(location)
+        require(nextUrl.scheme.equals("https", true) || nextUrl.scheme.equals("http", true)) {
+            "Plugin download redirects must use HTTP or HTTPS"
+        }
+        require(!nextUrl.host.isNullOrBlank() && nextUrl.userInfo == null) {
+            "Invalid plugin download redirect URL"
+        }
+        require(!currentUrl.scheme.equals("https", true) || nextUrl.scheme.equals("https", true)) {
+            "Refusing insecure HTTPS downgrade while downloading plugin"
+        }
+        return nextUrl
+    }
+
 }
