@@ -202,6 +202,8 @@ class SocketContext(
     fun resume(session: WebSocketSession): Boolean {
         val queuedEvents = synchronized(this) {
             if (executor.isShutdown || resumeInvalidated) return false
+            sessionTimeoutFuture?.cancel(false)
+            sessionTimeoutFuture = null
             this.session = session
             sessionPaused = false
             resumeEventQueue.drain()
