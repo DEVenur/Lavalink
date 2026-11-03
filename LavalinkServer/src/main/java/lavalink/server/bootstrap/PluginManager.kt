@@ -57,14 +57,23 @@ class PluginManager(val config: PluginsConfig) {
 
         val declarations = config.plugins.map { declaration ->
             if (declaration.dependency == null) throw RuntimeException("Illegal dependency declaration: null")
-            val fragments = declaration.dependency!!.split(":")
-            if (fragments.size != 3) throw RuntimeException("Invalid dependency \"${declaration.dependency}\"")
+            val (group, name, version) = try {
+                PluginValidation.parseDependency(declaration.dependency!!)
+            } catch (ex: IllegalArgumentException) {
+                throw RuntimeException("Invalid dependency \"${declaration.dependency}\"", ex)
+            }
 
             val repository = declaration.repository
                 ?: config.defaultPluginSnapshotRepository.takeIf { declaration.snapshot }
                 ?: config.defaultPluginRepository
 
-            Declaration(fragments[0], fragments[1], fragments[2], "${repository.removeSuffix("/")}/")
+            val validatedRepository = try {
+                PluginValidation.validateRepository(repository)
+            } catch (ex: IllegalArgumentException) {
+                throw RuntimeException("Invalid repository for plugin '$name'", ex)
+            }
+
+            Declaration(group, name, version, validatedRepository)
         }.distinctBy { "${it.group}:${it.name}" }
 
         for (declaration in declarations) {
@@ -286,6 +295,11 @@ class PluginManager(val config: PluginsConfig) {
         val name = props.getProperty("name") ?: throw RuntimeException("Manifest is missing 'name'")
         val path = props.getProperty("path") ?: throw RuntimeException("Manifest is missing 'path'")
         val version = props.getProperty("version") ?: throw RuntimeException("Manifest is missing 'version'")
+        try {
+            PluginValidation.validateManifest(name, path, version)
+        } catch (ex: IllegalArgumentException) {
+            throw RuntimeException("Invalid Lavalink plugin manifest", ex)
+        }
         return PluginManifest(name, path, version)
     }
 
