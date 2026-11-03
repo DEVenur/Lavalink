@@ -19,8 +19,10 @@ Now you can start writing your plugin.
     trust. Metadata and repository URLs are validated, but this does not make an untrusted plugin safe.
 
     Plugin dependency coordinates must use the `group:artifact:version` form. Custom plugin repositories must use
-    HTTP or HTTPS URLs without embedded credentials, query strings, or fragments. You can test your plugin against Lavalink by running Gradle with the
-`:runLavalink` Gradle task. The [Gradle plugin documentation](https://github.com/lavalink-devs/lavalink-gradle-plugin#running-the-plugin) might be helpful.
+    HTTP or HTTPS URLs without embedded credentials, query strings, or fragments.
+
+You can test your plugin against Lavalink by running Gradle with the `:runLavalink` task. The
+[Gradle plugin documentation](https://github.com/lavalink-devs/lavalink-gradle-plugin#running-the-plugin) might be helpful.
 
 Lavalink has a [plugin API](https://javadoc.io/doc/dev.arbjerg.lavalink/plugin-api/latest/dev/arbjerg/lavalink/api/package-summary.html) which you can integrate with. The API is
 provided [as an artifact](https://central.sonatype.com/artifact/dev.arbjerg.lavalink/plugin-api) and is used by the template. It is also possible to integrate with internal parts of Lavalink,
