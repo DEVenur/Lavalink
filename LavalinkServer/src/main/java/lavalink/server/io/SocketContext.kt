@@ -197,12 +197,21 @@ class SocketContext(
     /**
      * @return true if we can resume, false otherwise
      */
-    fun stopResumeTimeout() = sessionTimeoutFuture?.cancel(false) ?: false
+    fun stopResumeTimeout() = synchronized(this) {
+        val timeout = sessionTimeoutFuture ?: return false
+        val cancelled = timeout.cancel(false)
+        if (cancelled) sessionTimeoutFuture = null
+        cancelled
+    }
 
     fun resume(session: WebSocketSession): Boolean {
         val queuedEvents = synchronized(this) {
             if (executor.isShutdown || resumeInvalidated) return false
-            sessionTimeoutFuture?.cancel(false)
+            val timeout = sessionTimeoutFuture
+            if (timeout != null && !timeout.cancel(false)) {
+                resumeInvalidated = true
+                return false
+            }
             sessionTimeoutFuture = null
             this.session = session
             sessionPaused = false
