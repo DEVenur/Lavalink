@@ -25,4 +25,38 @@ for instructions.
 | [Java Timed Lyrics Plugin](https://github.com/DuncteBot/java-timed-lyrics) | Timestamped lyrics from YouTube with Genius fallback, supports IP-rotation (supports: [LavaLyrics](https://github.com/topi314/LavaLyrics)) |
 | [LavaDSPX Plugin](https://github.com/Devoxin/LavaDSPX-Plugin)              | Additional audio filters for Lavalink                                                                                                      |
 
+## YouTube source plugin
+
+The built-in YouTube source is deprecated. For Lavalink v4, use the maintained
+[YouTube source plugin](https://github.com/lavalink-devs/youtube-source#plugin).
+
+Add the plugin dependency and disable the built-in source to avoid registering both:
+
+```yaml
+lavalink:
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:VERSION"
+      snapshot: false
+  server:
+    sources:
+      youtube: false
+
+plugins:
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    clients:
+      - MUSIC
+      - ANDROID_VR
+      - WEB
+      - WEBEMBEDDED
+```
+
+Replace `VERSION` with a published plugin version. Set `snapshot: true` only when intentionally using a snapshot.
+Existing Lavalink options such as `ratelimit` and `youtubePlaylistLoadLimit` are read by the plugin automatically.
+Consult the plugin README before changing client-specific options; an unsuitable client configuration can reduce
+playback and search coverage.
+
 If you want to make your own plugin, see [here](api/plugins.md).
