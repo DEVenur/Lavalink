@@ -21,7 +21,7 @@ apply(plugin = "kotlin-spring")
 
 val archivesBaseName = "Lavalink"
 group = "dev.arbjerg.lavalink"
-description = "Lavalink server fork customized for Arielzinha: play audio to discord voice channels"
+description = "Play audio to discord voice channels"
 
 application {
     mainClass = "lavalink.server.Launcher"
@@ -173,8 +173,8 @@ tasks {
 mavenPublishing {
     configure(KotlinJvm(JavadocJar.Dokka("dokkaHtml")))
     pom {
-        name = "Lavalink Server (Arielzinha fork)"
-        description = "Lavalink Server fork customized for Arielzinha"
+        name = "Lavalink Server"
+        description = "Lavalink Server"
     }
 }
 
