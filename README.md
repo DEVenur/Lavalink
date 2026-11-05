@@ -1,11 +1,27 @@
-# Lavalink
+# Lavalink (fork personalizado para a Arielzinha)
 
 <img align="right" src="/branding/lavalink.svg" width=200 alt="Lavalink logo">
+
+> [!IMPORTANT]
+> Este é um **fork do [Lavalink](https://github.com/lavalink-devs/Lavalink) personalizado para funcionar com a [Arielzinha](https://github.com/DEVenur/Arielzinha)**.
+> Ele não é o projeto oficial e não tem suporte da equipe do Lavalink. Para suporte geral, use o repositório e a documentação oficiais.
+>
+> *This is a fork of [Lavalink](https://github.com/lavalink-devs/Lavalink) customized to work with [Arielzinha](https://github.com/DEVenur/Arielzinha). It is not the official project.*
 
 A standalone audio sending node based on [Lavaplayer](https://github.com/lavalink-devs/lavaplayer) and [Koe](https://github.com/KyokoBot/koe).
 Allows for sending audio without it ever reaching any of your shards.
 
-Being used in production by FredBoat, Dyno, LewdBot, and more.
+The upstream Lavalink project is being used in production by FredBoat, Dyno, LewdBot, and more.
+
+## Sobre este fork
+
+Baseado no `master` do Lavalink oficial e mantido por [DEVenur](https://github.com/DEVenur). O protocolo e a API REST continuam os mesmos do Lavalink v4. As principais diferenças em relação ao oficial:
+
+* **Sessões resumíveis mais robustas:** fila de eventos limitada em memória (8 MiB), encerramento sem race conditions e rejeição de resume em sessões expiradas ou invalidadas.
+* **Download de plugins mais seguro:** limite de tamanho por JAR (`lavalink.maxPluginSizeBytes`, padrão 100 MiB), validação de redirects e limite nos metadados do Maven.
+* **Testes automatizados** do servidor em um workflow próprio.
+
+Este projeto mantém a licença MIT e o crédito aos autores do Lavalink original. A documentação oficial em [lavalink.dev](https://lavalink.dev) continua valendo para tudo o que não foi alterado.
 
 A [basic example bot](https://github.com/lavalink-devs/lavalink-client/tree/main/testbot) is available.
 

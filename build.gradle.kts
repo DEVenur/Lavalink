@@ -86,7 +86,7 @@ subprojects {
                 }
 
                 pom {
-                    url = "https://github.com/lavalink-devs/Lavalink"
+                    url = "https://github.com/DEVenur/Lavalink"
 
                     licenses {
                         license {
@@ -104,9 +104,9 @@ subprojects {
                     }
 
                     scm {
-                        url = "https://github.com/lavalink-devs/Lavalink/"
-                        connection = "scm:git:git://github.com/lavalink-devs/Lavalink.git"
-                        developerConnection = "scm:git:ssh://git@github.com/lavalink-devs/Lavalink.git"
+                        url = "https://github.com/DEVenur/Lavalink/"
+                        connection = "scm:git:git://github.com/DEVenur/Lavalink.git"
+                        developerConnection = "scm:git:ssh://git@github.com/DEVenur/Lavalink.git"
                     }
                 }
             }

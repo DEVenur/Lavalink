@@ -1,7 +1,7 @@
 ---
 template: home.html
 title: Home
-description: Standalone audio sending node based on Lavaplayer.
+description: Standalone audio sending node based on Lavaplayer, fork customized for Arielzinha.
 hide:
   - footer
   - navigation

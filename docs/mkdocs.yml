@@ -1,14 +1,14 @@
 # yaml-language-server: $schema=https://squidfunk.github.io/mkdocs-material/schema.json
 
-site_name: Lavalink Docs
-site_description: Lavalink Documentation
-site_author: Lavalink Contributors
+site_name: Lavalink Docs (Arielzinha fork)
+site_description: Documentation for the Lavalink fork customized for Arielzinha
+site_author: DEVenur and Lavalink Contributors
 site_url: https://lavalink.dev
 site_dir: ../site
 docs_dir: .
 
-repo_name: Lavalink
-repo_url: https://github.com/lavalink-devs/Lavalink
+repo_name: DEVenur/Lavalink
+repo_url: https://github.com/DEVenur/Lavalink
 edit_uri: edit/master/docs/
 
 copyright: Licensed under the MIT license
