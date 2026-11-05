@@ -182,5 +182,5 @@ final class SocketServer(
         context.shutdown()
     }
 
-    internal fun canResume(id: String) = resumableSessions[id]?.stopResumeTimeout() ?: false
+    internal fun canResume(id: String) = resumableSessions[id]?.isResumable() ?: false
 }

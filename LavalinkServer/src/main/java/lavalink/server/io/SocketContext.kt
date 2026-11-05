@@ -50,7 +50,7 @@ class SocketContext(
     override val sessionId: String,
     val audioPlayerManager: AudioPlayerManager,
     private val serverConfig: ServerConfig,
-    private var session: WebSocketSession,
+    session: WebSocketSession,
     private val socketServer: SocketServer,
     statsCollector: StatsCollector,
     override val userId: Long,
@@ -65,6 +65,10 @@ class SocketContext(
         private const val MAX_RESUME_QUEUE_BYTES = 8L * 1024 * 1024
     }
 
+    // Written under the lock in resume() but read without it when sending, so it must be volatile.
+    @Volatile
+    private var session: WebSocketSession = session
+
     //guildId <-> LavalinkPlayer
     override val players = ConcurrentHashMap<Long, LavalinkPlayer>()
 
@@ -75,6 +79,7 @@ class SocketContext(
     private val resumeEventQueue = BoundedEventQueue(MAX_RESUME_QUEUE_BYTES)
     private var resumeInvalidated = false
     private var resumeTimeoutStopped = false
+    private var shutdownStarted = false
 
     /** Null means disabled. See implementation notes */
     var resumable: Boolean = false
@@ -172,6 +177,9 @@ class SocketContext(
         val queueResult = synchronized(this) {
             if (!sessionPaused) {
                 0
+            } else if (resumeInvalidated) {
+                // The session is already being terminated; drop the event instead of terminating it again.
+                1
             } else if (resumeEventQueue.offer(payload)) {
                 1
             } else {
@@ -205,17 +213,13 @@ class SocketContext(
     }
 
     /**
+     * Checks whether this session is currently paused and can still be resumed, without changing its state.
+     * The resume timeout is only cancelled by [resume], so a handshake that never completes cannot leak the session.
+     *
      * @return true if we can resume, false otherwise
      */
-    fun stopResumeTimeout() = synchronized(this) {
-        if (resumeInvalidated) return false
-        val timeout = sessionTimeoutFuture ?: return false
-        val cancelled = timeout.cancel(false)
-        if (cancelled) {
-            sessionTimeoutFuture = null
-            resumeTimeoutStopped = true
-        }
-        cancelled
+    fun isResumable() = synchronized(this) {
+        sessionPaused && !resumeInvalidated && !shutdownStarted && !executor.isShutdown
     }
 
     fun resume(session: WebSocketSession): Boolean {
@@ -240,13 +244,20 @@ class SocketContext(
     }
 
     internal fun shutdown() {
-        synchronized(this) {
-            resumeInvalidated = true
-            resumeTimeoutStopped = true
-            sessionPaused = false
-            resumeEventQueue.clear()
-            executor.shutdown()
+        val alreadyShutDown = synchronized(this) {
+            if (shutdownStarted) {
+                true
+            } else {
+                shutdownStarted = true
+                resumeInvalidated = true
+                resumeTimeoutStopped = true
+                sessionPaused = false
+                resumeEventQueue.clear()
+                executor.shutdown()
+                false
+            }
         }
+        if (alreadyShutDown) return
         log.info("Shutting down ${playingPlayers.size} playing players.")
         playerUpdateService.shutdown()
         players.values.forEach {
