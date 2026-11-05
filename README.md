@@ -15,11 +15,7 @@ The upstream Lavalink project is being used in production by FredBoat, Dyno, Lew
 
 ## Sobre este fork
 
-Baseado no `master` do Lavalink oficial e mantido por [DEVenur](https://github.com/DEVenur). O protocolo e a API REST continuam os mesmos do Lavalink v4. As principais diferenças em relação ao oficial:
-
-* **Sessões resumíveis mais robustas:** fila de eventos limitada em memória (8 MiB), encerramento sem race conditions e rejeição de resume em sessões expiradas ou invalidadas.
-* **Download de plugins mais seguro:** limite de tamanho por JAR (`lavalink.maxPluginSizeBytes`, padrão 100 MiB), validação de redirects e limite nos metadados do Maven.
-* **Testes automatizados** do servidor em um workflow próprio.
+Baseado no `master` do Lavalink oficial e mantido por [DEVenur](https://github.com/DEVenur). O protocolo e a API REST continuam os mesmos do Lavalink v4.
 
 Este projeto mantém a licença MIT e o crédito aos autores do Lavalink original. A documentação oficial em [lavalink.dev](https://lavalink.dev) continua valendo para tudo o que não foi alterado.
 
