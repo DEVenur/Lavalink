@@ -13,18 +13,18 @@ Allows for sending audio without it ever reaching any of your shards.
 
 The upstream Lavalink project is being used in production by FredBoat, Dyno, LewdBot, and more.
 
-## Sobre este fork
-
-Baseado no `master` do Lavalink oficial e mantido por [DEVenur](https://github.com/DEVenur). O protocolo e a API REST continuam os mesmos do Lavalink v4.
-
-Este projeto mantém a licença MIT e o crédito aos autores do Lavalink original. A documentação oficial em [lavalink.dev](https://lavalink.dev) continua valendo para tudo o que não foi alterado.
-
 A [basic example bot](https://github.com/lavalink-devs/lavalink-client/tree/main/testbot) is available.
 
 [![Lavalink Guild](https://discordapp.com/api/guilds/1082302532421943407/embed.png?style=banner2)](https://discord.gg/ZW4s47Ppw4)
 
 > [!NOTE]
 > Lavalink v4 is now **out** of beta! See [the changelog](CHANGELOG.md) for more information.
+
+## Sobre este fork
+
+Baseado no `master` do Lavalink oficial e mantido por [DEVenur](https://github.com/DEVenur). O protocolo e a API REST continuam os mesmos do Lavalink v4.
+
+Este projeto mantém a licença MIT e o crédito aos autores do Lavalink original. A documentação oficial em [lavalink.dev](https://lavalink.dev) continua valendo para tudo o que não foi alterado.
 
 ## Getting started
 * Pick one of the [up-to-date clients](https://lavalink.dev/clients). Advanced users can create their own using the [API documentation](https://lavalink.dev/api/)
