@@ -163,3 +163,42 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  publish-latest:
+    # Keeps a rolling "latest" pre-release with the jars built from master, so they can be downloaded
+    # from a stable link without opening the Actions page:
+    # https://github.com/<owner>/<repo>/releases/download/latest/Lavalink.jar
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-latest
+      cancel-in-progress: false
+    steps:
+      - name: Download Lavalink.jar
+        uses: actions/download-artifact@v4
+        with:
+          name: Lavalink.jar
+          path: dist
+
+      - name: Download Lavalink-musl.jar
+        uses: actions/download-artifact@v4
+        with:
+          name: Lavalink-musl.jar
+          path: dist
+
+      - name: Publish latest pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          short_sha="${COMMIT_SHA::7}"
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest dist/Lavalink.jar dist/Lavalink-musl.jar \
+            --prerelease \
+            --target "$COMMIT_SHA" \
+            --title "Latest build ($short_sha)" \
+            --notes "Automatic build of \`master\` at commit $short_sha. Download \`Lavalink.jar\` (glibc) or \`Lavalink-musl.jar\` (Alpine/musl)."
